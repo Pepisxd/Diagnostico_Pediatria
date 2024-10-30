@@ -291,6 +291,15 @@ class AdminDashboard(ctk.CTk):
         )
         edit_button.pack(pady=10)
 
+       # Botón para eliminar usuario
+        delete_button = ctk.CTkButton(
+            self.content_frame,
+            text="Eliminar Usuario",
+            fg_color="red",
+            command=lambda: self.delete_user(user_tree)
+        )
+        delete_button.pack(pady=10)
+
 
     def show_services(self):
         # Implementar lógica para mostrar servicios
@@ -305,6 +314,39 @@ class AdminDashboard(ctk.CTk):
     def clear_content(self):
         for widget in self.content_frame.winfo_children():
             widget.destroy()
+
+    def delete_user(self, tree):
+        # Obtener el item seleccionado
+        selected_item = tree.selection()
+        if not selected_item:
+            messagebox.showwarning("Advertencia", "Por favor, seleccione un usuario para eliminar")
+            return
+        
+        # Confirmar eliminación
+        if messagebox.askyesno("Confirmar eliminación", 
+                             "¿Está seguro que desea eliminar este usuario?"):
+            # Obtener datos del usuario
+            user_data = tree.item(selected_item)['values']
+            user_id = user_data[0]
+            
+            # Conectar a la base de datos y eliminar el usuario
+            connection = conexion_db()
+            cursor = connection.cursor()
+            try:
+                cursor.execute("DELETE FROM Usuario WHERE ID_Usuario = %s", (user_id,))
+                connection.commit()
+                # Eliminar de la tabla
+                tree.delete(selected_item)
+                # Eliminar de los datos
+                self.users_data.remove(tuple(user_data))
+                messagebox.showinfo("Éxito", "Usuario eliminado correctamente")
+            except Exception as e:
+                connection.rollback()
+                print(e)
+                messagebox.showerror("Error", "Ocurrió un error al eliminar el usuario")
+            finally:
+                cursor.close()
+                connection.close()
 
 if __name__ == "__main__":
     app = AdminDashboard()
