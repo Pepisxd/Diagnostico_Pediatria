@@ -2,6 +2,7 @@ import customtkinter as ctk
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
+from db_connection import conexion_db
 
 class EditUserWindow(ctk.CTkToplevel):
     def __init__(self, parent, user_data, on_save):
@@ -9,16 +10,18 @@ class EditUserWindow(ctk.CTkToplevel):
         self.title("Editar Usuario")
         self.geometry("400x500")
         
-        # Datos del usuario y callback
+        # Callback para guardado
         self.user_data = user_data
         self.on_save = on_save
         
         # Roles disponibles
-        self.roles = ["Admin", "Doctor"]
+        self.roles = {"Admin": 1, "Doctor": 2, "Secretaria": 3}
         
-        # Hacer la ventana modal
+        # Ventana modal
+        self.transient(parent)
         self.grab_set()
         
+        # Crear widgets
         self.create_widgets()
         
     def create_widgets(self):
@@ -26,35 +29,31 @@ class EditUserWindow(ctk.CTkToplevel):
         title = ctk.CTkLabel(self, text="Editar Usuario", font=("Arial", 20, "bold"))
         title.pack(pady=20)
         
-        # Frame para los campos
+        # Frame para el formulario
         form_frame = ctk.CTkFrame(self)
         form_frame.pack(fill="both", expand=True, padx=20, pady=10)
         
-        # Campos normales (nombre y email)
+        # Campos para nombre y email
         fields = [
             ("Nombre:", self.user_data[0]),
             ("Email:", self.user_data[1])
         ]
         
         self.entries = {}
-        
         for label_text, default_value in fields:
-            # Container para cada campo
             field_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
             field_frame.pack(fill="x", pady=10)
             
-            # Label
             label = ctk.CTkLabel(field_frame, text=label_text)
             label.pack(anchor="w")
             
-            # Entry
             entry = ctk.CTkEntry(field_frame)
             entry.pack(fill="x", pady=(5, 0))
             entry.insert(0, default_value)
             
             self.entries[label_text] = entry
         
-        # Campo de rol con ComboBox
+        # ComboBox de rol
         role_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
         role_frame.pack(fill="x", pady=10)
         
@@ -63,58 +62,48 @@ class EditUserWindow(ctk.CTkToplevel):
         
         self.role_combobox = ctk.CTkComboBox(
             role_frame,
-            values=self.roles,
+            values=list(self.roles.keys()),
             state="readonly"
         )
         self.role_combobox.pack(fill="x", pady=(5, 0))
+        self.role_combobox.set(self.user_data[2] if self.user_data[2] in self.roles else "Admin")
         
-        # Establecer el valor actual del rol
-        if self.user_data[2] in self.roles:
-            self.role_combobox.set(self.user_data[2])
-        else:
-            self.role_combobox.set(self.roles[0])
-        
-        # Botones
+        # Botones de guardar y cancelar
         button_frame = ctk.CTkFrame(self, fg_color="transparent")
         button_frame.pack(fill="x", padx=20, pady=20)
         
-        # Botón cancelar
-        ctk.CTkButton(
-            button_frame, 
-            text="Cancelar", 
-            command=self.destroy,
-            fg_color="gray"
-        ).pack(side="left", padx=5, expand=True)
-        
-        # Botón guardar
-        ctk.CTkButton(
-            button_frame, 
-            text="Guardar", 
-            command=self.save_changes
-        ).pack(side="left", padx=5, expand=True)
+        ctk.CTkButton(button_frame, text="Cancelar", command=self.destroy, fg_color="gray").pack(side="left", padx=5, expand=True)
+        ctk.CTkButton(button_frame, text="Guardar", command=self.save_changes).pack(side="left", padx=5, expand=True)
         
     def save_changes(self):
-        # Recopilar datos actualizados
+        # Validar campos y rol
         nombre = self.entries["Nombre:"].get().strip()
         email = self.entries["Email:"].get().strip()
-        rol = self.role_combobox.get()
+        rol_text = self.role_combobox.get()
+        rol = self.roles.get(rol_text, 1)
         
-        # Validar campos
-        if not nombre or not email:
-            messagebox.showerror("Error", "Todos los campos son requeridos")
+        if not nombre or not email or "@" not in email or "." not in email:
+            messagebox.showerror("Error", "Todos los campos son requeridos con email válido")
             return
         
-        # Validar formato de email básico
-        if "@" not in email or "." not in email:
-            messagebox.showerror("Error", "Por favor ingrese un email válido")
-            return
-        
-        # Crear datos actualizados
-        updated_data = [nombre, email, rol]
-        
-        # Llamar al callback con los datos actualizados
-        self.on_save(updated_data)
-        self.destroy()
+        # Conectar a la base de datos y actualizar
+        user_id = self.user_data[0]
+        connection = conexion_db()
+        cursor = connection.cursor()
+        try:
+            cursor.execute("UPDATE Usuario SET Nombre = %s, Correo = %s, Rol = %s WHERE ID_Usuario = %s", (nombre, email, rol, user_id))
+            connection.commit()
+            updated_data = (user_id, nombre, email, rol)
+            self.on_save(updated_data)
+            self.destroy()
+        except Exception as e:
+            connection.rollback()
+            print(e)
+            messagebox.showerror("Error", "Ocurrió un error al guardar los cambios")
+        finally:
+            cursor.close()
+            connection.close()
+
 
 class AdminDashboard(ctk.CTk):
     def __init__(self, user_data=None):
@@ -250,25 +239,46 @@ class AdminDashboard(ctk.CTk):
         user_data = tree.item(selected_item)['values']
         
         def on_save(updated_data):
-            # Actualizar los datos en la tabla
-            index = tree.index(selected_item)
-            tree.item(selected_item, values=updated_data)
-            self.users_data[index] = updated_data
+
+            role_names = {1: "Admin", 2: "Doctor", 3: "Secretaria"}
+                    # Convertir updated_data a lista para poder modificarlo
+            updated_values = list(updated_data)
+            
+            # El rol está en la posición 3 (índice 3)
+            # Convertir el ID del rol al nombre correspondiente
+            role_id = updated_values[3]  # Obtener el ID del rol
+            role_name = role_names.get(role_id, "Desconocido")  # Convertir ID a nombre
+            updated_values[3] = role_name  # Actualizar el valor del rol
+            
+            # Actualizar el item en el TreeView
+            tree.item(selected_item, values=tuple(updated_values))
             
         # Crear ventana de edición
         edit_window = EditUserWindow(self, user_data, on_save)
+
 
     def show_users(self):
         # Limpiar contenido previo
         self.clear_content()
 
         # Encabezados y datos de la tabla
-        headers = ["Nombre", "Email", "Rol"]
-        self.users_data = [
-            ("Juan Pérez", "juan@example.com", "Admin"),
-            ("María García", "maria@example.com", "Doctor")
-        ]
-        
+        headers = ["ID", "Nombre", "Email", "Rol"]
+
+        # Conexión a la base de datos y obtención de datos con el rol en texto
+        connection = conexion_db()
+        cursor = connection.cursor()
+        cursor.execute("""
+            SELECT ID_Usuario, Nombre, Correo, 
+                CASE 
+                    WHEN Rol = 1 THEN 'Admin' 
+                    WHEN Rol = 2 THEN 'Doctor' 
+                    WHEN Rol = 3 THEN 'Secretaria' 
+                    ELSE 'Desconocido' 
+                END as Rol 
+            FROM Usuario
+        """)
+        self.users_data = cursor.fetchall()
+
         # Crear tabla de usuarios
         user_tree = self.create_table(self.content_frame, headers, self.users_data)
         user_tree.pack(fill="both", expand=True)
@@ -280,6 +290,7 @@ class AdminDashboard(ctk.CTk):
             command=lambda: self.edit_user(user_tree)
         )
         edit_button.pack(pady=10)
+
 
     def show_services(self):
         # Implementar lógica para mostrar servicios

@@ -8,9 +8,6 @@ from doctor import DoctorScreen
 from secretaria import SecretaryPanel
 from adminDashboard import AdminDashboard
 
-
-
-
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
@@ -134,7 +131,7 @@ class Login(ctk.CTk):
                         # Intenta verificar con bcrypt
                         if bcrypt.checkpw(contrasena.encode(), contrasena_db.encode()):
                             print("Inicio de sesión exitoso")
-                            self.abrir_ventana_segun_rol(rol, id_usuario, nombre, apellidos)
+                            self.abrir_ventana_segun_rol(rol, id_usuario, nombre, apellidos, correo)
                         else:
                             self.mostrar_error("Contraseña incorrecta")
                     except ValueError:
@@ -160,7 +157,7 @@ class Login(ctk.CTk):
         else:
             self.mostrar_error("Error al conectar a la base de datos")
 
-    def abrir_ventana_segun_rol(self, rol, id_usuario, nombre, apellidos):
+    def abrir_ventana_segun_rol(self, rol, id_usuario, nombre, apellidos, email):
             self.withdraw()  # Ocultar ventana de login
             
             # Crear diccionario con datos del usuario
@@ -168,7 +165,8 @@ class Login(ctk.CTk):
                 'id': id_usuario,
                 'nombre': nombre,
                 'apellidos': apellidos,
-                'rol': rol
+                'rol': rol,
+                'correo': email
             }
             
             try:
@@ -179,7 +177,7 @@ class Login(ctk.CTk):
                     ventana.mainloop()
                 elif rol == 2:  # Doctor
                     print(user_data)
-                    ventana = DoctorScreen()
+                    ventana = DoctorScreen(doctor_email=email)
                     ventana.protocol("WM_DELETE_WINDOW", lambda: self.cerrar_sesion(ventana))
                     ventana.mainloop()
                 elif rol == 3:  # Secretaria
@@ -196,8 +194,11 @@ class Login(ctk.CTk):
                 self.mostrar_error(f"Error al abrir la ventana: {str(e)}")
 
     def cerrar_sesion(self, ventana_actual):
-        ventana_actual.destroy()
-        self.deiconify()  # Mostrar ventana de login nuevamente
+        if isinstance(ventana_actual, DoctorScreen):
+            ventana_actual.on_closing()  # Esto ejecutará el commit y cerrará la conexión
+        else:
+            ventana_actual.destroy()
+        self.deiconify()
 
     def mostrar_error(self, mensaje):
         error_window = ctk.CTkToplevel(self)
